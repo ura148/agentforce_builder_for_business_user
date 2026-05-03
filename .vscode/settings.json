@@ -1,0 +1,12 @@
+{
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/bower_components": true,
+    "**/.sf": true,
+    "**/.sfdx": true
+  },
+  "cSpell.words": [
+    "agentforce"
+  ],
+  "xml.preferences.showSchemaDocumentationType": "none"
+}

@@ -37,9 +37,10 @@ jobs:
           ref: ${{ inputs.branch }}
 
       - name: Setup Salesforce CLI
-        uses: salesforcecli/setup-cli@v2
-        with:
-          version: latest
+        run: |
+          set -euo pipefail
+          npm install @salesforce/cli --global
+          sf version
 
       - name: Authenticate to Sandbox
         env:

@@ -1,3 +1,8 @@
+# Agent Script Version: 7
+# Last Modified: 2026-05-04 01:20:43 UTC
+# Modified By: 浦木 友貴
+# Request ID: a00g500000PoANZAA3
+
 system:
     instructions: "You are a helpful assistant for this resort. You provide local weather updates, share information about local events, and help guests find resort facility hours."
     messages:
@@ -95,24 +100,25 @@ subagent local_weather:
 
     reasoning:
         instructions: ->
+            | TEST DAYO
             | Your job is to answer questions about the weather. When asked about the weather, assume that you are being asked about the weather
-              around the resort TODAY unless the request mentions a specific date. Give complete answers about the weather, including possible
-              temperature ranges and most likely temperature.
-
-              When responding, ALWAYS include the specific date from the weather action results. Say something like
-              "The weather at the resort on [date from results] will have temperatures between 48.5F and 70.0F."
-              NEVER use the word "today" — always use the actual date returned by the action results.
-              NEVER use the ° character in your response.
-              Always closely paraphrase or directly quote the data from the action results.
-
-              If a customer asks about the weather, you should run the action {!@actions.check_weather} and then summarize the results with improved readability.
-              Always assume you are being asked about weather near the resort.
-
-              If the customer DOES NOT provide a specific date OR asks about today's weather, use today's date when running
-              the action {!@actions.check_weather}.  If the customer DOES provide a specific date, ensure it IS NOT in the past.
-              Convert the date to yyyy-MM-dd. format before using it for the action {!@actions.check_weather}.
-
-              ALWAYS Provide forecasts that include a temperature range.
+            | around the resort TODAY unless the request mentions a specific date. Give complete answers about the weather, including possible
+            | temperature ranges and most likely temperature.
+            | 
+            | When responding, ALWAYS include the specific date from the weather action results. Say something like
+            | "The weather at the resort on [date from results] will have temperatures between 48.5F and 70.0F."
+            | NEVER use the word "today" — always use the actual date returned by the action results.
+            | NEVER use the ° character in your response.
+            | Always closely paraphrase or directly quote the data from the action results.
+            | 
+            | If a customer asks about the weather, you should run the action {!@actions.check_weather} and then summarize the results with improved readability.
+            | Always assume you are being asked about weather near the resort.
+            | 
+            | If the customer DOES NOT provide a specific date OR asks about today's weather, use today's date when running
+            | the action {!@actions.check_weather}.  If the customer DOES provide a specific date, ensure it IS NOT in the past.
+            | Convert the date to yyyy-MM-dd. format before using it for the action {!@actions.check_weather}.
+            | 
+            | ALWAYS Provide forecasts that include a temperature range.
 
         actions:
             check_weather: @actions.check_weather

@@ -1,0 +1,142 @@
+name: Agent Script Deploy to Sandbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      sandbox:
+        description: Target Sandbox name (label for logs)
+        required: true
+        default: AgentDev
+        type: string
+      requestId:
+        description: Salesforce Agent_Edit_Request__c Id
+        required: true
+        type: string
+      branch:
+        description: Branch to deploy
+        required: true
+        type: string
+      environment:
+        description: Sandbox or Production (PATCHes Production_Deployed_Date__c when Production)
+        required: true
+        default: Sandbox
+        type: choice
+        options:
+          - Sandbox
+          - Production
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Setup Salesforce CLI
+        uses: salesforcecli/setup-cli@v2
+        with:
+          version: latest
+
+      - name: Authenticate to Sandbox
+        env:
+          SFDX_AUTH_URL: ${{ secrets.SF_SFDX_AUTH_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SFDX_AUTH_URL:-}" ]; then
+            echo "Missing secret SF_SFDX_AUTH_URL"
+            exit 1
+          fi
+          printf "%s" "$SFDX_AUTH_URL" > authurl.txt
+          sf org login sfdx-url --sfdx-url-file authurl.txt --alias targetOrg --set-default
+
+      - name: Validate deployment (checkOnly)
+        id: validate
+        run: |
+          set -euo pipefail
+          sf project deploy validate --source-dir force-app --target-org targetOrg --wait 60 --json | tee validate-result.json
+
+      - name: Deploy to org
+        id: deploy
+        run: |
+          set -euo pipefail
+          sf project deploy start --source-dir force-app --target-org targetOrg --wait 60 --json | tee deploy-result.json
+
+      - name: Publish Agent (optional)
+        if: success()
+        continue-on-error: true
+        run: |
+          echo "Optional: activate BotVersion / publish Agent (e.g. sf apex run -f scripts/publishAgent.apex -o targetOrg)"
+
+      - name: Notify Salesforce - Success
+        if: success()
+        env:
+          SF_ACCESS_TOKEN: ${{ secrets.SF_ACCESS_TOKEN }}
+          SF_INSTANCE_URL: ${{ secrets.SF_INSTANCE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SF_ACCESS_TOKEN:-}" ] || [ -z "${SF_INSTANCE_URL:-}" ]; then
+            echo "Missing SF_ACCESS_TOKEN or SF_INSTANCE_URL; skipping Salesforce callback."
+            exit 0
+          fi
+          jq -n \
+            --argjson validate "$(cat validate-result.json)" \
+            --argjson deploy "$(cat deploy-result.json)" \
+            '{validate: $validate, deploy: $deploy}' > combined.json
+          head -c 131000 combined.json > combined.trim.json || true
+          LOG_JSON=$(jq -Rs . < combined.trim.json)
+          jq -n \
+            --arg rid "${{ inputs.requestId }}" \
+            --arg st "Success" \
+            --arg msg "Deploy completed successfully" \
+            --argjson log "$LOG_JSON" \
+            '{Request_Id__c:$rid, Status__c:$st, Message__c:$msg, Deploy_Log__c:$log}' > event.json
+          curl -sS -X POST "${SF_INSTANCE_URL%/}/services/data/v66.0/sobjects/Agent_Deploy_Result__e/" \
+            -H "Authorization: Bearer ${SF_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @event.json
+          if [ "${{ inputs.environment }}" = "Production" ]; then
+            NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            if ! curl -sS -f -X PATCH "${SF_INSTANCE_URL%/}/services/data/v66.0/sobjects/Agent_Edit_Request__c/${{ inputs.requestId }}" \
+              -H "Authorization: Bearer ${SF_ACCESS_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"Production_Deployed_Date__c\":\"$NOW\"}"; then
+              echo "WARN: PATCH Production_Deployed_Date__c failed (check Integration User edit on Agent_Edit_Request__c)."
+            fi
+          fi
+
+      - name: Notify Salesforce - Failure
+        if: failure()
+        env:
+          SF_ACCESS_TOKEN: ${{ secrets.SF_ACCESS_TOKEN }}
+          SF_INSTANCE_URL: ${{ secrets.SF_INSTANCE_URL }}
+        run: |
+          set +e
+          LOG_PART=""
+          if [ -f validate-result.json ]; then
+            LOG_PART=$(cat validate-result.json)
+          fi
+          if [ -f deploy-result.json ]; then
+            LOG_PART="${LOG_PART}$(cat deploy-result.json)"
+          fi
+          MSG="Validation or deploy failed"
+          if [ -z "${SF_ACCESS_TOKEN:-}" ] || [ -z "${SF_INSTANCE_URL:-}" ]; then
+            echo "Missing SF_ACCESS_TOKEN or SF_INSTANCE_URL; skipping Salesforce callback."
+            exit 0
+          fi
+          printf '%s' "$LOG_PART" > fail-combined.txt
+          head -c 131000 fail-combined.txt > fail.trim.txt || true
+          LOG_JSON=$(jq -Rs . < fail.trim.txt)
+          jq -n \
+            --arg rid "${{ inputs.requestId }}" \
+            --arg st "Failed" \
+            --arg msg "$MSG" \
+            --argjson log "$LOG_JSON" \
+            '{Request_Id__c:$rid, Status__c:$st, Message__c:$msg, Deploy_Log__c:$log}' > event.json
+          curl -sS -X POST "${SF_INSTANCE_URL%/}/services/data/v66.0/sobjects/Agent_Deploy_Result__e/" \
+            -H "Authorization: Bearer ${SF_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @event.json
